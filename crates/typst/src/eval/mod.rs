@@ -25,10 +25,12 @@ use comemo::{Track, Tracked, TrackedMut};
 
 use crate::diag::{bail, SourceResult};
 use crate::engine::{Engine, Route, Sink, Traced};
-use crate::foundations::{Cast, Context, Module, NativeElement, Scope, Scopes, Value};
+use crate::foundations::{
+    Cast, Content, Context, Module, NativeElement, Scope, Scopes, Value,
+};
 use crate::introspection::Introspector;
 use crate::math::EquationElem;
-use crate::syntax::{ast, parse, parse_code, parse_math, Source, Span};
+use crate::syntax::{ast, parse, parse_code, parse_math, Source, Span, SyntaxNode};
 use crate::World;
 
 /// Evaluate a source file and return the resulting module.
@@ -144,6 +146,48 @@ pub fn eval_string(
                 .pack(),
         ),
     };
+
+    // Handle control flow.
+    if let Some(flow) = vm.flow {
+        bail!(flow.forbidden());
+    }
+
+    Ok(output)
+}
+
+/// Evaluate a [`SyntaxNode`] of [markup kind][Markup] into a [`Content`].
+///
+/// [Markup]: crate::syntax::SyntaxKind::Markup
+#[comemo::memoize]
+pub fn eval_node(
+    world: Tracked<dyn World + '_>,
+    node: SyntaxNode,
+) -> SourceResult<Content> {
+    // Check for well-formedness.
+    let errors = node.errors();
+    if !errors.is_empty() {
+        return Err(errors.into_iter().map(Into::into).collect());
+    }
+
+    // Prepare the engine.
+    let mut sink = Sink::new();
+    let introspector = Introspector::default();
+    let traced = Traced::default();
+    let engine = Engine {
+        world,
+        introspector: introspector.track(),
+        traced: traced.track(),
+        sink: sink.track_mut(),
+        route: Route::default(),
+    };
+
+    // Prepare VM.
+    let context = Context::none();
+    let scopes = Scopes::new(Some(world.library()));
+    let mut vm = Vm::new(engine, context.track(), scopes, node.span());
+
+    // Evaluate the code.
+    let output = node.cast::<ast::Markup>().unwrap().eval(&mut vm)?;
 
     // Handle control flow.
     if let Some(flow) = vm.flow {

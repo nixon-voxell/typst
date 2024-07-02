@@ -66,7 +66,7 @@ use typst_timing::{timed, TimingScope};
 use crate::diag::{warning, FileResult, SourceDiagnostic, SourceResult, Warned};
 use crate::engine::{Engine, Route, Sink, Traced};
 use crate::foundations::{
-    Array, Bytes, Datetime, Dict, Module, Scope, StyleChain, Styles, Value,
+    Array, Bytes, Content, Datetime, Dict, Module, Scope, StyleChain, Styles, Value,
 };
 use crate::introspection::Introspector;
 use crate::layout::{Alignment, Dir};
@@ -99,15 +99,11 @@ pub fn trace(world: &dyn World, span: Span) -> EcoVec<(Value, Option<Styles>)> {
     sink.values()
 }
 
-/// Relayout until introspection converges.
 fn compile_inner(
     world: Tracked<dyn World + '_>,
     traced: Tracked<Traced>,
     sink: &mut Sink,
 ) -> SourceResult<Document> {
-    let library = world.library();
-    let styles = StyleChain::new(&library.styles);
-
     // First evaluate the main source file into a module.
     let content = crate::eval::eval(
         world,
@@ -117,6 +113,19 @@ fn compile_inner(
         &world.main(),
     )?
     .content();
+
+    compile_content(world, traced, sink, content)
+}
+
+/// Relayout until introspection converges.
+pub fn compile_content(
+    world: Tracked<dyn World + '_>,
+    traced: Tracked<Traced>,
+    sink: &mut Sink,
+    content: Content,
+) -> SourceResult<Document> {
+    let library = world.library();
+    let styles = StyleChain::new(&library.styles);
 
     let mut iter = 0;
     let mut document = Document::default();
